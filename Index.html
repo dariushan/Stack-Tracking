@@ -1,0 +1,391 @@
+<!DOCTYPE html>
+
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Stack">
+<meta name="theme-color" content="#090909">
+<title>Stack – Supplement Logbuch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@400;600;700;800&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent;}
+body{background:#090909;color:#f0f0f0;font-family:'Syne',sans-serif;min-height:100vh;overflow-x:hidden;}
+::-webkit-scrollbar{display:none;}
+input{-webkit-appearance:none;appearance:none;}
+button{font-family:'Syne',sans-serif;}
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+
+<script>
+const { useState, useEffect, createElement: h } = React;
+
+// ─── DATA ────────────────────────────────────────────────────────────────────
+
+const DEFAULT_SUPPLEMENTS = [
+  { id:"bpc157",   name:"BPC-157",            dose:"2,5 mg/Woche",            section:"morgens",     note:"täglich · Schulter",   schedule:[] },
+  { id:"tb500",    name:"TB-500",              dose:"2,5 mg/Woche",            section:"morgens",     note:"Mo + Do · Bauch",       schedule:[1,4] },
+  { id:"methblue", name:"Methylene Blue",      dose:"10 mg",                   section:"morgens",     note:"",                      schedule:[] },
+  { id:"vitd3",    name:"Vitamin D3",          dose:"140 mcg",                 section:"morgens",     note:"",                      schedule:[] },
+  { id:"vitk2",    name:"Vitamin K2",          dose:"200 mcg",                 section:"morgens",     note:"",                      schedule:[] },
+  { id:"kreatin",  name:"Kreatin",             dose:"6 g",                     section:"morgens",     note:"",                      schedule:[] },
+  { id:"omega3",   name:"Omega-3",             dose:"3 g (1,6g EPA/1,2g DHA)", section:"morgens",     note:"",                      schedule:[] },
+  { id:"zink",     name:"Zink",                dose:"25 mg",                   section:"morgens",     note:"",                      schedule:[] },
+  { id:"selen",    name:"Selen",               dose:"200 mcg",                 section:"morgens",     note:"L-Selenomethionin",     schedule:[] },
+  { id:"jod",      name:"Jod",                 dose:"150 mcg – 1 Tropfen",     section:"morgens",     note:"ProFuel Forte",         schedule:[] },
+  { id:"lithium",  name:"Lithium",             dose:"2 mg – 1 ml auf Zunge",   section:"morgens",     note:"täglich neu mischen",   schedule:[] },
+  { id:"kupfer",   name:"Kupfer",              dose:"2 mg",                    section:"nachmittags", note:"",                      schedule:[] },
+  { id:"glycin",   name:"Glycin",              dose:"6 g in Wasser",           section:"abends",      note:"30 min vor Schlaf",     schedule:[] },
+  { id:"mag",      name:"Magnesium-Bisglycin", dose:"194 mg",                  section:"abends",      note:"30 min vor Schlaf",     schedule:[] },
+];
+
+const SECTIONS = {
+  morgens:     { label:"Morgens",     color:"#ff8c42" },
+  nachmittags: { label:"Nachmittags", color:"#38bdf8" },
+  abends:      { label:"Abends",      color:"#a78bfa" },
+};
+
+const DOW = ["So","Mo","Di","Mi","Do","Fr","Sa"];
+
+// ─── HELPERS ─────────────────────────────────────────────────────────────────
+
+function todayKey() {
+  const d = new Date();
+  return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`;
+}
+function pad(n){ return String(n).padStart(2,"0"); }
+function offsetKey(key, offset) {
+  const [y,m,d] = key.split("-").map(Number);
+  const date = new Date(y, m-1, d);
+  date.setDate(date.getDate()+offset);
+  return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}`;
+}
+function formatKey(key) {
+  const [y,m,d] = key.split("-").map(Number);
+  const date = new Date(y,m-1,d);
+  const months = ["Jan","Feb","Mär","Apr","Mai","Jun","Jul","Aug","Sep","Okt","Nov","Dez"];
+  if (key===todayKey()) return "Heute";
+  if (key===offsetKey(todayKey(),-1)) return "Gestern";
+  return `${DOW[date.getDay()]}, ${d}. ${months[date.getMonth()]}`;
+}
+function getDow(key) {
+  const [y,m,d] = key.split("-").map(Number);
+  return new Date(y,m-1,d).getDay();
+}
+function uid(){ return Math.random().toString(36).slice(2,9); }
+function activeSupps(supps, key) {
+  const dow = getDow(key);
+  return supps.filter(s => !s.schedule || s.schedule.length===0 || s.schedule.includes(dow));
+}
+function ls(k){ try{ return JSON.parse(localStorage.getItem(k)||"null"); }catch{ return null; } }
+function lss(k,v){ localStorage.setItem(k, JSON.stringify(v)); }
+
+// ─── STYLES ──────────────────────────────────────────────────────────────────
+
+const S = {
+  navBtn:{ background:"#161616", border:"1px solid #222", color:"#888", width:30, height:30, borderRadius:8, fontSize:14, cursor:"pointer", display:"flex", alignItems:"center", justifyContent:"center" },
+  label:{ display:"block", fontSize:10, fontWeight:700, letterSpacing:1, textTransform:"uppercase", color:"#555", marginBottom:6 },
+  input:{ width:"100%", background:"#0e0e0e", border:"1px solid #222", borderRadius:10, padding:"11px 13px", color:"#f0f0f0", fontFamily:"'Syne',sans-serif", fontSize:14, marginBottom:14, outline:"none" },
+};
+
+// ─── COMPONENTS ──────────────────────────────────────────────────────────────
+
+function SuppCard({ s, checked, color, onToggle, onEdit, scheduled }) {
+  return h("div", {
+    style:{
+      background: !scheduled ? "#0c0c0c" : checked ? "#131313" : "#111",
+      border:`1px solid ${checked?"#1e1e1e":"#1a1a1a"}`,
+      borderLeft:`3px solid ${checked ? color : scheduled ? "#1e1e1e" : "transparent"}`,
+      borderRadius:12, padding:"13px 14px", marginBottom:7,
+      display:"flex", alignItems:"center", gap:13,
+      opacity: scheduled ? 1 : 0.35,
+    }
+  },
+    h("div", {
+      onClick: scheduled ? onToggle : undefined,
+      style:{
+        cursor: scheduled ? "pointer" : "default",
+        width:22, height:22, borderRadius:6, flexShrink:0,
+        border:`2px solid ${checked ? color : "#2a2a2a"}`,
+        background: checked ? color : "transparent",
+        display:"flex", alignItems:"center", justifyContent:"center",
+        transition:"all 0.2s", fontSize:12, color:"#000", fontWeight:700,
+        userSelect:"none",
+      }
+    }, checked ? "✓" : null),
+    h("div", {
+      onClick: scheduled ? onToggle : undefined,
+      style:{ flex:1, minWidth:0, cursor: scheduled ? "pointer" : "default", userSelect:"none" }
+    },
+      h("div", { style:{ fontSize:14, fontWeight:600, color: checked?"#555": !scheduled?"#444":"#e8e8e8", marginBottom:2 } },
+        s.name,
+        s.schedule && s.schedule.length > 0
+          ? h("span", { style:{ marginLeft:8, fontSize:9, padding:"2px 6px", borderRadius:4, fontFamily:"'DM Mono',monospace", fontWeight:500, background: scheduled?"rgba(200,255,0,0.1)":"rgba(255,255,255,0.03)", color: scheduled?"#c8ff00":"#333" } },
+              scheduled ? "HEUTE" : "NICHT HEUTE")
+          : null
+      ),
+      h("div", { style:{ fontFamily:"'DM Mono',monospace", fontSize:11, color:"#3a3a3a" } }, s.dose),
+      s.note ? h("div", { style:{ fontSize:10, color:"#2e2e2e", marginTop:2, fontStyle:"italic" } }, s.note) : null
+    ),
+    h("button", { onClick:onEdit, style:{ background:"transparent", border:"none", color:"#2a2a2a", fontSize:18, cursor:"pointer", padding:"0 4px", lineHeight:1 } }, "›")
+  );
+}
+
+// ─── MAIN APP ────────────────────────────────────────────────────────────────
+
+function App() {
+  const [tab, setTab]           = useState("heute");
+  const [currentDate, setDate]  = useState(todayKey());
+  const [supps, setSupps]       = useState(() => ls("stackSupps") || DEFAULT_SUPPLEMENTS);
+  const [data, setData]         = useState(() => ls("stackData4") || {});
+  const [toast, setToast]       = useState(null);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editItem, setEditItem] = useState(null);
+
+  useEffect(() => lss("stackData4", data),  [data]);
+  useEffect(() => lss("stackSupps", supps), [supps]);
+
+  // Checks
+  function isChecked(id){ return !!(data[currentDate]?.taken?.[id]); }
+  function toggle(id){
+    setData(prev => {
+      const day = prev[currentDate] || { taken:{} };
+      return { ...prev, [currentDate]:{ ...day, taken:{ ...day.taken, [id]:!day.taken?.[id] } } };
+    });
+  }
+
+  // Progress
+  const todayActive = activeSupps(supps, currentDate);
+  const takenCount  = todayActive.filter(s => isChecked(s.id)).length;
+  const pct         = todayActive.length ? Math.round(takenCount/todayActive.length*100) : 0;
+
+  // Toast
+  let toastTimer;
+  function showToast(msg){ setToast(msg); clearTimeout(toastTimer); toastTimer=setTimeout(()=>setToast(null),2000); }
+
+  // Streak
+  function calcStreak(){
+    let streak=0, key=todayKey();
+    while(true){
+      const active=activeSupps(supps,key);
+      if(!active.length) break;
+      const taken=active.filter(s=>data[key]?.taken?.[s.id]).length;
+      if(!taken) break;
+      streak++; key=offsetKey(key,-1);
+    }
+    return streak;
+  }
+  function calc7Day(){
+    let total=0,count=0;
+    for(let i=0;i<7;i++){
+      const key=offsetKey(todayKey(),-i);
+      const active=activeSupps(supps,key);
+      if(!active.length) continue;
+      const taken=active.filter(s=>data[key]?.taken?.[s.id]).length;
+      if(data[key]){ total+=Math.round(taken/active.length*100); count++; }
+    }
+    return count ? Math.round(total/count) : 0;
+  }
+
+  // Edit
+  function openNew(){ setEditItem({id:uid(),name:"",dose:"",section:"morgens",note:"",schedule:[]}); setEditOpen(true); }
+  function openEdit(s){ setEditItem({...s}); setEditOpen(true); }
+  function saveEdit(){
+    if(!editItem.name.trim()){ showToast("Name darf nicht leer sein"); return; }
+    setSupps(prev => {
+      const exists=prev.find(s=>s.id===editItem.id);
+      return exists ? prev.map(s=>s.id===editItem.id?editItem:s) : [...prev,editItem];
+    });
+    setEditOpen(false); showToast("✓ Gespeichert");
+  }
+  function deleteSupp(id){ setSupps(prev=>prev.filter(s=>s.id!==id)); setEditOpen(false); showToast("Gelöscht"); }
+  function toggleDay(dow){
+    setEditItem(prev => {
+      const s=prev.schedule||[];
+      return {...prev, schedule: s.includes(dow)?s.filter(d=>d!==dow):[...s,dow]};
+    });
+  }
+
+  // Section grouping
+  const sections = { morgens:[], nachmittags:[], abends:[] };
+  supps.forEach(s => { if(sections[s.section]) sections[s.section].push(s); });
+
+  const histKeys = Object.keys(data).sort((a,b)=>b.localeCompare(a)).slice(0,30);
+
+  // ── RENDER ──────────────────────────────────────────────────────────────────
+
+  return h("div", { style:{ fontFamily:"'Syne',sans-serif", background:"#090909", minHeight:"100vh", color:"#f0f0f0", maxWidth:480, margin:"0 auto", position:"relative" } },
+
+    // HEADER
+    h("div", { style:{ position:"sticky", top:0, zIndex:50, background:"rgba(9,9,9,0.96)", backdropFilter:"blur(20px)", WebkitBackdropFilter:"blur(20px)", borderBottom:"1px solid #1e1e1e", padding:"14px 18px 12px" } },
+      h("div", { style:{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:12 } },
+        h("div", { style:{ fontWeight:800, fontSize:20, letterSpacing:-0.5, color:"#c8ff00" } }, "STACK", h("span", { style:{color:"#2a2a2a"} }, ".")),
+        h("div", { style:{ display:"flex", gap:8, alignItems:"center" } },
+          h("button", { onClick:()=>setDate(d=>offsetKey(d,-1)), style:S.navBtn }, "‹"),
+          h("span", { style:{ fontFamily:"'DM Mono',monospace", fontSize:12, color:"#ccc", minWidth:90, textAlign:"center" } }, formatKey(currentDate)),
+          h("button", { onClick:()=>{ if(currentDate<todayKey()) setDate(d=>offsetKey(d,1)); }, style:{ ...S.navBtn, color: currentDate===todayKey()?"#222":"#888" } }, "›")
+        )
+      ),
+      h("div", { style:{ background:"#181818", borderRadius:3, height:3, overflow:"hidden" } },
+        h("div", { style:{ width:pct+"%", height:"100%", background:"#c8ff00", borderRadius:3, transition:"width 0.4s cubic-bezier(0.34,1.56,0.64,1)" } })
+      ),
+      h("div", { style:{ fontFamily:"'DM Mono',monospace", fontSize:10, color:"#444", marginTop:5, textAlign:"right" } },
+        `${takenCount} / ${todayActive.length} für heute · ${pct}%`
+      )
+    ),
+
+    // TABS
+    h("div", { style:{ display:"flex", gap:2, padding:"0 18px", borderBottom:"1px solid #1a1a1a", background:"#090909" } },
+      [["heute","Heute"],["verlauf","Verlauf"],["stack","Stack"]].map(([t,l]) =>
+        h("button", { key:t, onClick:()=>setTab(t), style:{ padding:"10px 14px", fontSize:12, fontWeight:700, letterSpacing:0.3, border:"none", background:"none", cursor:"pointer", color:tab===t?"#f0f0f0":"#444", borderBottom:tab===t?"2px solid #c8ff00":"2px solid transparent", marginBottom:-1 } }, l)
+      )
+    ),
+
+    // CONTENT
+    h("div", { style:{ padding:"14px 18px 120px" } },
+
+      // ── HEUTE ──
+      tab==="heute" && h("div", null,
+        // Stats row
+        h("div", { style:{ display:"flex", gap:8, marginBottom:18 } },
+          [{val:calcStreak(),label:"Streak"},{val:calc7Day()+"%",label:"Ø 7 Tage"},{val:pct+"%",label:"Heute"}].map(({val,label}) =>
+            h("div", { key:label, style:{ flex:1, background:"#111", border:"1px solid #1e1e1e", borderRadius:12, padding:"12px 8px", textAlign:"center" } },
+              h("div", { style:{ fontSize:22, fontWeight:800, color:"#c8ff00", lineHeight:1, marginBottom:4 } }, val),
+              h("div", { style:{ fontSize:9, fontWeight:700, letterSpacing:1, textTransform:"uppercase", color:"#444" } }, label)
+            )
+          )
+        ),
+        // Sections
+        Object.entries(sections).map(([sec, secSupps]) => {
+          const info = SECTIONS[sec];
+          const activeSec   = secSupps.filter(s => activeSupps([s], currentDate).length > 0);
+          const inactiveSec = secSupps.filter(s => activeSupps([s], currentDate).length === 0);
+          const done = activeSec.filter(s => isChecked(s.id)).length;
+          if(!secSupps.length) return null;
+          return h("div", { key:sec },
+            h("div", { style:{ display:"flex", alignItems:"center", gap:8, margin:"20px 0 10px" } },
+              h("div", { style:{ width:7, height:7, borderRadius:"50%", background:info.color, flexShrink:0 } }),
+              h("div", { style:{ fontSize:10, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:"#555" } }, info.label),
+              h("div", { style:{ marginLeft:"auto", fontFamily:"'DM Mono',monospace", fontSize:10, color:"#333" } }, `${done}/${activeSec.length}`)
+            ),
+            activeSec.map(s => h(SuppCard, { key:s.id, s, checked:isChecked(s.id), color:info.color, onToggle:()=>toggle(s.id), onEdit:()=>openEdit(s), scheduled:true })),
+            inactiveSec.map(s => h(SuppCard, { key:s.id, s, checked:isChecked(s.id), color:info.color, onToggle:()=>{}, onEdit:()=>openEdit(s), scheduled:false }))
+          );
+        })
+      ),
+
+      // ── VERLAUF ──
+      tab==="verlauf" && h("div", null,
+        histKeys.length===0
+          ? h("div", { style:{ textAlign:"center", padding:"60px 20px", color:"#333", fontSize:13 } }, h("div", { style:{ fontSize:32, marginBottom:12 } }, "📋"), "Noch keine Einträge.")
+          : histKeys.map(key => {
+              const active = activeSupps(supps, key);
+              const taken  = active.filter(s => data[key]?.taken?.[s.id]).length;
+              const p      = active.length ? Math.round(taken/active.length*100) : 0;
+              const col    = p>=80?"#c8ff00":p>=50?"#ff8c42":"#ff4444";
+              return h("div", { key, style:{ background:"#111", border:"1px solid #1a1a1a", borderRadius:12, padding:"13px 15px", marginBottom:8 } },
+                h("div", { style:{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 } },
+                  h("span", { style:{ fontFamily:"'DM Mono',monospace", fontSize:12, color:"#555" } }, formatKey(key)),
+                  h("span", { style:{ fontSize:13, fontWeight:800, color:col } }, `${p}% `, h("span", { style:{color:"#333",fontWeight:400,fontSize:10} }, `${taken}/${active.length}`))
+                ),
+                h("div", { style:{ display:"flex", flexWrap:"wrap", gap:4 } },
+                  active.map(s => {
+                    const t = data[key]?.taken?.[s.id];
+                    return h("span", { key:s.id, style:{ fontFamily:"'DM Mono',monospace", fontSize:9, padding:"3px 7px", borderRadius:100, border:`1px solid ${t?"rgba(200,255,0,0.2)":"#1e1e1e"}`, background:t?"rgba(200,255,0,0.08)":"#0e0e0e", color:t?"#c8ff00":"#333" } }, s.name);
+                  })
+                )
+              );
+            })
+      ),
+
+      // ── STACK ──
+      tab==="stack" && h("div", null,
+        h("div", { style:{ display:"flex", justifyContent:"space-between", alignItems:"center", margin:"4px 0 20px" } },
+          h("div", null,
+            h("div", { style:{ fontSize:17, fontWeight:800, marginBottom:2 } }, "Dein Stack"),
+            h("div", { style:{ fontSize:12, color:"#444" } }, `${supps.length} Supplements`)
+          ),
+          h("button", { onClick:openNew, style:{ background:"#c8ff00", color:"#000", border:"none", borderRadius:10, padding:"9px 16px", fontSize:12, fontWeight:700, cursor:"pointer" } }, "+ Neu")
+        ),
+        Object.entries(sections).map(([sec, secSupps]) => {
+          const info = SECTIONS[sec];
+          if(!secSupps.length) return null;
+          return h("div", { key:sec, style:{ marginBottom:22 } },
+            h("div", { style:{ fontSize:10, fontWeight:700, letterSpacing:1.5, textTransform:"uppercase", color:info.color, marginBottom:10 } }, info.label),
+            secSupps.map(s =>
+              h("div", { key:s.id, onClick:()=>openEdit(s), style:{ background:"#111", border:"1px solid #1a1a1a", borderRadius:11, padding:"12px 14px", marginBottom:6, display:"flex", justifyContent:"space-between", alignItems:"center", cursor:"pointer" } },
+                h("div", null,
+                  h("div", { style:{ fontSize:13, fontWeight:600, marginBottom:3 } }, s.name),
+                  h("div", { style:{ fontFamily:"'DM Mono',monospace", fontSize:11, color:"#444" } },
+                    s.dose,
+                    s.note ? ` · ${s.note}` : "",
+                    s.schedule?.length > 0 ? h("span", { style:{color:"#38bdf8",marginLeft:6} }, s.schedule.map(d=>DOW[d]).join("+")) : null
+                  )
+                ),
+                h("span", { style:{ color:"#333", fontSize:16 } }, "›")
+              )
+            )
+          );
+        })
+      )
+    ),
+
+    // FAB
+    tab==="heute" && h("button", {
+      onClick: ()=>showToast(`✓ ${takenCount}/${todayActive.length} gespeichert`),
+      style:{ position:"fixed", bottom:28, right:20, background:"#c8ff00", color:"#000", border:"none", borderRadius:14, padding:"14px 22px", fontSize:13, fontWeight:700, cursor:"pointer", boxShadow:"0 8px 32px rgba(200,255,0,0.2)", zIndex:100 }
+    }, "✓ Tag speichern"),
+
+    // TOAST
+    toast && h("div", { style:{ position:"fixed", bottom:100, left:"50%", transform:"translateX(-50%)", background:"#1a1a1a", border:"1px solid #2a2a2a", color:"#f0f0f0", padding:"10px 18px", borderRadius:100, fontSize:13, fontWeight:600, whiteSpace:"nowrap", zIndex:300, boxShadow:"0 4px 20px rgba(0,0,0,0.4)" } }, toast),
+
+    // EDIT MODAL
+    editOpen && editItem && h("div", {
+      onClick: ()=>setEditOpen(false),
+      style:{ position:"fixed", inset:0, background:"rgba(0,0,0,0.85)", zIndex:200, display:"flex", alignItems:"flex-end" }
+    },
+      h("div", { onClick:e=>e.stopPropagation(), style:{ background:"#111", borderTop:"1px solid #222", borderRadius:"20px 20px 0 0", padding:"24px 20px 50px", width:"100%", maxWidth:480, margin:"0 auto", maxHeight:"90vh", overflowY:"auto" } },
+        h("div", { style:{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:22 } },
+          h("div", { style:{ fontSize:16, fontWeight:800 } }, supps.find(s=>s.id===editItem.id) ? "Bearbeiten" : "Neu hinzufügen"),
+          h("button", { onClick:()=>setEditOpen(false), style:{ background:"#1a1a1a", border:"1px solid #2a2a2a", color:"#888", width:30, height:30, borderRadius:8, cursor:"pointer", fontSize:14 } }, "✕")
+        ),
+        h("label", { style:S.label }, "Name"),
+        h("input", { value:editItem.name, onChange:e=>setEditItem(p=>({...p,name:e.target.value})), placeholder:"z.B. Vitamin C", style:S.input }),
+        h("label", { style:S.label }, "Dosierung"),
+        h("input", { value:editItem.dose, onChange:e=>setEditItem(p=>({...p,dose:e.target.value})), placeholder:"z.B. 500 mg", style:S.input }),
+        h("label", { style:S.label }, "Notiz (optional)"),
+        h("input", { value:editItem.note, onChange:e=>setEditItem(p=>({...p,note:e.target.value})), placeholder:"z.B. mit Mahlzeit", style:S.input }),
+        h("label", { style:S.label }, "Zeitfenster"),
+        h("div", { style:{ display:"flex", gap:6, marginBottom:18 } },
+          Object.entries(SECTIONS).map(([sec,info]) =>
+            h("button", { key:sec, onClick:()=>setEditItem(p=>({...p,section:sec})), style:{ flex:1, padding:"9px 4px", borderRadius:9, border:`1px solid ${editItem.section===sec?info.color:"#222"}`, background:editItem.section===sec?"rgba(255,255,255,0.04)":"transparent", color:editItem.section===sec?info.color:"#444", fontSize:11, fontWeight:700, cursor:"pointer" } }, info.label)
+          )
+        ),
+        h("label", { style:S.label }, "Nur an bestimmten Tagen? ", h("span", { style:{color:"#444"} }, "(leer = täglich)")),
+        h("div", { style:{ display:"flex", gap:6, marginBottom:24 } },
+          DOW.map((d,i) => {
+            const on = editItem.schedule?.includes(i);
+            return h("button", { key:i, onClick:()=>toggleDay(i), style:{ flex:1, padding:"8px 2px", borderRadius:8, border:`1px solid ${on?"#c8ff00":"#222"}`, background:on?"rgba(200,255,0,0.1)":"transparent", color:on?"#c8ff00":"#444", fontFamily:"'DM Mono',monospace", fontSize:10, cursor:"pointer" } }, d);
+          })
+        ),
+        h("button", { onClick:saveEdit, style:{ width:"100%", padding:"14px", background:"#c8ff00", color:"#000", border:"none", borderRadius:12, fontSize:14, fontWeight:700, cursor:"pointer", marginBottom:10 } }, "Speichern"),
+        supps.find(s=>s.id===editItem.id) && h("button", { onClick:()=>deleteSupp(editItem.id), style:{ width:"100%", padding:"12px", background:"transparent", color:"#ff4444", border:"1px solid #2a2a2a", borderRadius:12, fontSize:13, fontWeight:600, cursor:"pointer" } }, "Löschen")
+      )
+    )
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(h(App));
+</script>
+
+</body>
+</html>
