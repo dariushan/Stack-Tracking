@@ -64,7 +64,7 @@ const MODULES = [
   { id:"habits",      label:"Gewohnheiten",      icon:"✅", color:"#38bdf8" },
   { id:"gewicht",     label:"Gewicht",           icon:"⚖️", color:"#fb923c" },
   { id:"ernaehrung",  label:"Ernährung",         icon:"🥗", color:"#ff8c42", soon:true },
-  { id:"training",    label:"Training",          icon:"🏋️", color:"#a78bfa", soon:true },
+  { id:"training",    label:"Training",          icon:"🏋️", color:"#a78bfa" },
   { id:"blutwerte",   label:"Blutwerte",         icon:"🩸", color:"#ff4444", soon:true },
 ];
 
@@ -182,21 +182,30 @@ function SupplementsModule({supps,setSupps,data,setData,currentDate,showToast}){
   function isChecked(id){return!!(data[currentDate]?.taken?.[id]);}
   function toggle(id){setData(prev=>{const day=prev[currentDate]||{taken:{}}; return {...prev,[currentDate]:{...day,taken:{...day.taken,[id]:!day.taken?.[id]}}};}); }
 
-  const todayActive=activeItems(supps,currentDate);
+  // Only active supps count for daily progress
+  const activeSupps=supps.filter(s=>s.active!==false);
+  const todayActive=activeItems(activeSupps,currentDate);
   const takenCount=todayActive.filter(s=>isChecked(s.id)).length;
   const pct=todayActive.length?Math.round(takenCount/todayActive.length*100):0;
 
-  function calcStreak(){let s=0,k=todayKey();while(true){const a=activeItems(supps,k);if(!a.length)break;const t=a.filter(x=>data[k]?.taken?.[x.id]).length;if(!t)break;s++;k=offsetKey(k,-1);}return s;}
-  function calc7Day(){let t=0,c=0;for(let i=0;i<7;i++){const k=offsetKey(todayKey(),-i),a=activeItems(supps,k);if(!a.length)continue;const tk=a.filter(x=>data[k]?.taken?.[x.id]).length;if(data[k]){t+=Math.round(tk/a.length*100);c++;}}return c?Math.round(t/c):0;}
+  function calcStreak(){let s=0,k=todayKey();while(true){const a=activeItems(activeSupps,k);if(!a.length)break;const t=a.filter(x=>data[k]?.taken?.[x.id]).length;if(!t)break;s++;k=offsetKey(k,-1);}return s;}
+  function calc7Day(){let t=0,c=0;for(let i=0;i<7;i++){const k=offsetKey(todayKey(),-i),a=activeItems(activeSupps,k);if(!a.length)continue;const tk=a.filter(x=>data[k]?.taken?.[x.id]).length;if(data[k]){t+=Math.round(tk/a.length*100);c++;}}return c?Math.round(t/c):0;}
 
-  function openNew(){setEditItem({id:uid(),name:"",dose:"",section:"morgens",note:"",schedule:[]});setEditOpen(true);}
+  function openNew(){setEditItem({id:uid(),name:"",dose:"",section:"morgens",note:"",schedule:[],active:true});setEditOpen(true);}
   function openEdit(s){setEditItem({...s});setEditOpen(true);}
-  function saveEdit(){if(!editItem.name.trim()){showToast("Name darf nicht leer sein");return;}setSupps(prev=>{const ex=prev.find(s=>s.id===editItem.id);return ex?prev.map(s=>s.id===editItem.id?editItem:s):[...prev,editItem];});setEditOpen(false);showToast("✓ Gespeichert");}
+  function saveEdit(){
+    if(!editItem.name.trim()){showToast("Name darf nicht leer sein");return;}
+    setSupps(prev=>{const ex=prev.find(s=>s.id===editItem.id);return ex?prev.map(s=>s.id===editItem.id?editItem:s):[...prev,{...editItem,active:true}];});
+    setEditOpen(false);showToast("✓ Gespeichert");
+  }
   function deleteSupp(id){setSupps(prev=>prev.filter(s=>s.id!==id));setEditOpen(false);showToast("Gelöscht");}
+  function toggleActive(id){setSupps(prev=>prev.map(s=>s.id===id?{...s,active:s.active===false?true:false}:s));}
   function toggleDay(dow){setEditItem(prev=>{const s=prev.schedule||[];return{...prev,schedule:s.includes(dow)?s.filter(d=>d!==dow):[...s,dow]};});}
 
   const secs={morgens:[],nachmittags:[],abends:[]};
-  supps.forEach(s=>{if(secs[s.section])secs[s.section].push(s);});
+  activeSupps.forEach(s=>{if(secs[s.section])secs[s.section].push(s);});
+
+  // For verlauf: use ALL supps (active + inactive) so history stays complete
   const histKeys=Object.keys(data).sort((a,b)=>b.localeCompare(a)).slice(0,30);
 
   return h("div",null,
@@ -208,7 +217,7 @@ function SupplementsModule({supps,setSupps,data,setData,currentDate,showToast}){
       [["heute","Heute"],["verlauf","Verlauf"],["stack","Stack"]].map(([t,l])=>
         h("button",{key:t,onClick:()=>setTab(t),style:{padding:"10px 12px",fontSize:12,fontWeight:700,border:"none",background:"none",cursor:"pointer",color:tab===t?"#f0f0f0":"#444",borderBottom:tab===t?"2px solid #c8ff00":"2px solid transparent",marginBottom:-1}},l)
       ),
-      h("button",{onClick:()=>exportPDF("supplements",supps,[],data,{}),style:{marginLeft:"auto",background:"transparent",border:"1px solid #222",color:"#666",borderRadius:8,padding:"5px 10px",fontSize:11,cursor:"pointer",flexShrink:0}},"PDF ↓")
+      h("button",{onClick:()=>exportPDF("supplements",activeSupps,[],data,{}),style:{marginLeft:"auto",background:"transparent",border:"1px solid #222",color:"#666",borderRadius:8,padding:"5px 10px",fontSize:11,cursor:"pointer",flexShrink:0}},"PDF ↓")
     ),
     h("div",{style:{padding:"14px 18px 120px"}},
       tab==="heute"&&h("div",null,
@@ -240,6 +249,7 @@ function SupplementsModule({supps,setSupps,data,setData,currentDate,showToast}){
       tab==="verlauf"&&h("div",null,
         histKeys.length===0?h("div",{style:{textAlign:"center",padding:"60px 20px",color:"#333",fontSize:13}},"Noch keine Einträge."):
         histKeys.map(key=>{
+          // ALL supps for history (incl. inactive) so nothing disappears
           const act=activeItems(supps,key),tk=act.filter(s=>data[key]?.taken?.[s.id]).length,p=act.length?Math.round(tk/act.length*100):0,col=p>=80?"#c8ff00":p>=50?"#ff8c42":"#ff4444";
           return h("div",{key,style:{background:"#111",border:"1px solid #1a1a1a",borderRadius:12,padding:"13px 15px",marginBottom:8}},
             h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
@@ -247,26 +257,54 @@ function SupplementsModule({supps,setSupps,data,setData,currentDate,showToast}){
               h("span",{style:{fontSize:13,fontWeight:800,color:col}},`${p}% `,h("span",{style:{color:"#333",fontWeight:400,fontSize:10}},`${tk}/${act.length}`))
             ),
             h("div",{style:{display:"flex",flexWrap:"wrap",gap:4}},
-              act.map(s=>{const t=data[key]?.taken?.[s.id]; return h("span",{key:s.id,style:{fontFamily:"monospace",fontSize:9,padding:"3px 7px",borderRadius:100,border:`1px solid ${t?"rgba(200,255,0,0.2)":"#1e1e1e"}`,background:t?"rgba(200,255,0,0.08)":"#0e0e0e",color:t?"#c8ff00":"#333"}},s.name);})
+              act.map(s=>{
+                const t=data[key]?.taken?.[s.id];
+                const inactive=s.active===false;
+                return h("span",{key:s.id,style:{fontFamily:"monospace",fontSize:9,padding:"3px 7px",borderRadius:100,border:`1px solid ${t?"rgba(200,255,0,0.2)":"#1e1e1e"}`,background:t?"rgba(200,255,0,0.08)":"#0e0e0e",color:t?"#c8ff00":inactive?"#2a2a2a":"#333",textDecoration:inactive&&!t?"line-through":"none",opacity:inactive?0.5:1}},s.name);
+              })
             )
           );
         })
       ),
       tab==="stack"&&h("div",null,
-        h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",margin:"4px 0 20px"}},
-          h("div",null,h("div",{style:{fontSize:17,fontWeight:800,marginBottom:2}},"Dein Stack"),h("div",{style:{fontSize:12,color:"#444"}},`${supps.length} Supplements`)),
+        h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",margin:"4px 0 16px"}},
+          h("div",null,
+            h("div",{style:{fontSize:17,fontWeight:800,marginBottom:2}},"Dein Stack"),
+            h("div",{style:{fontSize:12,color:"#444"}},`${activeSupps.length} aktiv · ${supps.filter(s=>s.active===false).length} inaktiv`)
+          ),
           h("button",{onClick:openNew,style:{background:"#c8ff00",color:"#000",border:"none",borderRadius:10,padding:"9px 16px",fontSize:12,fontWeight:700,cursor:"pointer"}},"+ Neu")
         ),
-        Object.entries(secs).map(([sec,ss])=>{
-          const info=SUPP_SECTIONS[sec]; if(!ss.length)return null;
+        // Active supplements grouped by section
+        Object.entries(SUPP_SECTIONS).map(([sec,info])=>{
+          const ss=supps.filter(s=>s.section===sec&&s.active!==false);
+          if(!ss.length)return null;
           return h("div",{key:sec,style:{marginBottom:22}},
             h("div",{style:{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:info.color,marginBottom:10}},info.label),
-            ss.map(s=>h("div",{key:s.id,onClick:()=>openEdit(s),style:{background:"#111",border:"1px solid #1a1a1a",borderRadius:11,padding:"12px 14px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer"}},
-              h("div",null,h("div",{style:{fontSize:13,fontWeight:600,marginBottom:3}},s.name),h("div",{style:{fontFamily:"monospace",fontSize:11,color:"#444"}},s.dose,s.note?` · ${s.note}`:"",s.schedule?.length>0?h("span",{style:{color:"#38bdf8",marginLeft:6}},s.schedule.map(d=>DOW[d]).join("+")):null)),
-              h("span",{style:{color:"#333",fontSize:16}},"›")
+            ss.map(s=>h("div",{key:s.id,style:{background:"#111",border:"1px solid #1a1a1a",borderRadius:11,padding:"12px 14px",marginBottom:6,display:"flex",alignItems:"center",gap:10,cursor:"pointer"}},
+              // Active toggle pill
+              h("div",{onClick:()=>toggleActive(s.id),style:{flexShrink:0,padding:"3px 8px",borderRadius:20,fontSize:9,fontWeight:700,fontFamily:"monospace",border:"1px solid #38bdf8",background:"rgba(56,189,248,0.1)",color:"#38bdf8",cursor:"pointer",userSelect:"none"}},"AKTIV"),
+              h("div",{onClick:()=>openEdit(s),style:{flex:1,minWidth:0}},
+                h("div",{style:{fontSize:13,fontWeight:600,marginBottom:3}},s.name),
+                h("div",{style:{fontFamily:"monospace",fontSize:11,color:"#444"}},s.dose,s.note?` · ${s.note}`:"",s.schedule?.length>0?h("span",{style:{color:"#38bdf8",marginLeft:6}},s.schedule.map(d=>DOW[d]).join("+")):null)
+              ),
+              h("span",{onClick:()=>openEdit(s),style:{color:"#333",fontSize:16,cursor:"pointer"}},"›")
             ))
           );
-        })
+        }),
+        // Inactive supplements
+        supps.filter(s=>s.active===false).length>0&&h("div",{style:{marginTop:8}},
+          h("div",{style:{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#333",marginBottom:10}},"Inaktiv"),
+          supps.filter(s=>s.active===false).map(s=>
+            h("div",{key:s.id,style:{background:"#0d0d0d",border:"1px solid #181818",borderRadius:11,padding:"12px 14px",marginBottom:6,display:"flex",alignItems:"center",gap:10,opacity:0.6}},
+              h("div",{onClick:()=>toggleActive(s.id),style:{flexShrink:0,padding:"3px 8px",borderRadius:20,fontSize:9,fontWeight:700,fontFamily:"monospace",border:"1px solid #333",background:"transparent",color:"#444",cursor:"pointer",userSelect:"none"}},"INAKTIV"),
+              h("div",{onClick:()=>openEdit(s),style:{flex:1,minWidth:0}},
+                h("div",{style:{fontSize:13,fontWeight:600,marginBottom:3,color:"#555",textDecoration:"line-through"}},s.name),
+                h("div",{style:{fontFamily:"monospace",fontSize:11,color:"#333"}},s.dose)
+              ),
+              h("span",{onClick:()=>openEdit(s),style:{color:"#2a2a2a",fontSize:16,cursor:"pointer"}},"›")
+            )
+          )
+        )
       )
     ),
     h(EditModal,{open:editOpen,onClose:()=>setEditOpen(false)},
@@ -274,6 +312,11 @@ function SupplementsModule({supps,setSupps,data,setData,currentDate,showToast}){
         h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:22}},
           h("div",{style:{fontSize:16,fontWeight:800}},supps.find(s=>s.id===editItem?.id)?"Bearbeiten":"Neu"),
           h("button",{onClick:()=>setEditOpen(false),style:{background:"#1a1a1a",border:"1px solid #2a2a2a",color:"#888",width:30,height:30,borderRadius:8,cursor:"pointer",fontSize:14}},"✕")
+        ),
+        // Active/Inactive toggle in edit modal
+        supps.find(s=>s.id===editItem?.id)&&h("div",{style:{display:"flex",gap:6,marginBottom:18}},
+          h("button",{onClick:()=>setEditItem(p=>({...p,active:true})),style:{flex:1,padding:"10px",borderRadius:9,border:`1px solid ${editItem.active!==false?"#38bdf8":"#222"}`,background:editItem.active!==false?"rgba(56,189,248,0.1)":"transparent",color:editItem.active!==false?"#38bdf8":"#444",fontSize:12,fontWeight:700,cursor:"pointer"}},"✓ Aktiv"),
+          h("button",{onClick:()=>setEditItem(p=>({...p,active:false})),style:{flex:1,padding:"10px",borderRadius:9,border:`1px solid ${editItem.active===false?"#ff8c42":"#222"}`,background:editItem.active===false?"rgba(255,140,66,0.1)":"transparent",color:editItem.active===false?"#ff8c42":"#444",fontSize:12,fontWeight:700,cursor:"pointer"}},"✗ Inaktiv")
         ),
         h("label",{style:S.label},"Name"),h("input",{value:editItem.name,onChange:e=>setEditItem(p=>({...p,name:e.target.value})),placeholder:"z.B. Vitamin C",style:S.input}),
         h("label",{style:S.label},"Dosierung"),h("input",{value:editItem.dose,onChange:e=>setEditItem(p=>({...p,dose:e.target.value})),placeholder:"z.B. 500 mg",style:S.input}),
@@ -283,7 +326,7 @@ function SupplementsModule({supps,setSupps,data,setData,currentDate,showToast}){
         h("label",{style:S.label},"Bestimmte Tage? ",h("span",{style:{color:"#444"}},"(leer = täglich)")),
         h("div",{style:{display:"flex",gap:6,marginBottom:24}},DOW.map((d,i)=>{const on=editItem.schedule?.includes(i);return h("button",{key:i,onClick:()=>toggleDay(i),style:{flex:1,padding:"8px 2px",borderRadius:8,border:`1px solid ${on?"#c8ff00":"#222"}`,background:on?"rgba(200,255,0,0.1)":"transparent",color:on?"#c8ff00":"#444",fontFamily:"monospace",fontSize:10,cursor:"pointer"}},d);})),
         h("button",{onClick:saveEdit,style:{width:"100%",padding:"14px",background:"#c8ff00",color:"#000",border:"none",borderRadius:12,fontSize:14,fontWeight:700,cursor:"pointer",marginBottom:10}},"Speichern"),
-        supps.find(s=>s.id===editItem?.id)&&h("button",{onClick:()=>deleteSupp(editItem.id),style:{width:"100%",padding:"12px",background:"transparent",color:"#ff4444",border:"1px solid #2a2a2a",borderRadius:12,fontSize:13,fontWeight:600,cursor:"pointer"}},"Löschen")
+        supps.find(s=>s.id===editItem?.id)&&h("button",{onClick:()=>deleteSupp(editItem.id),style:{width:"100%",padding:"12px",background:"transparent",color:"#ff4444",border:"1px solid #2a2a2a",borderRadius:12,fontSize:13,fontWeight:600,cursor:"pointer"}},"Endgültig löschen")
       )
     )
   );
@@ -559,6 +602,289 @@ function WeightModule({data,setData,showToast}){
   );
 }
 
+// ─── TRAINING MODULE ─────────────────────────────────────────────────────────
+
+function MiniChart({entries, color, yLabel, valueKey}){
+  if(entries.length<2) return h("div",{style:{textAlign:"center",padding:"20px",color:"#333",fontSize:11}},"Mindestens 2 Einträge für den Graphen");
+  const vals=entries.map(e=>e[valueKey]);
+  const minV=Math.min(...vals),maxV=Math.max(...vals),rangeV=maxV-minV||1;
+  const W=300,H=100,PL=36,PR=8,PT=8,PB=22;
+  const cw=W-PL-PR,ch=H-PT-PB;
+  const xP=i=>PL+(entries.length>1?(i/(entries.length-1))*cw:cw/2);
+  const yP=v=>PT+ch-((v-minV)/rangeV)*ch;
+  const pts=entries.map((e,i)=>`${xP(i)},${yP(e[valueKey])}`).join(" ");
+  const area=`${xP(0)},${PT+ch} ${pts} ${xP(entries.length-1)},${PT+ch}`;
+  const yTicks=[minV,minV+rangeV/2,maxV];
+  const xLabels=[{i:0,l:entries[0].date.slice(5)},{i:entries.length-1,l:entries[entries.length-1].date.slice(5)}];
+  return h("svg",{width:"100%",viewBox:`0 0 ${W} ${H}`,style:{display:"block"}},
+    yTicks.map((v,i)=>h("line",{key:i,x1:PL,y1:yP(v),x2:W-PR,y2:yP(v),stroke:"#1e1e1e",strokeWidth:1})),
+    h("polygon",{points:area,fill:`${color}10`}),
+    h("polyline",{points:pts,fill:"none",stroke:color,strokeWidth:2,strokeLinejoin:"round",strokeLinecap:"round"}),
+    entries.map((e,i)=>h("circle",{key:i,cx:xP(i),cy:yP(e[valueKey]),r:2.5,fill:color})),
+    yTicks.map((v,i)=>h("text",{key:i,x:PL-4,y:yP(v)+4,textAnchor:"end",fontSize:8,fill:"#555",fontFamily:"monospace"},Math.round(v))),
+    xLabels.map(({i,l})=>h("text",{key:i,x:xP(i),y:H-4,textAnchor:"middle",fontSize:8,fill:"#555",fontFamily:"monospace"},l))
+  );
+}
+
+function ExerciseDetail({ex,trainLog,onBack,currentDate,onLog,showToast}){
+  const todayEntry=trainLog[currentDate]?.[ex.id];
+  // Pre-fill with today's values if they exist — always editable
+  const [sets,setSets]=useState(todayEntry?String(todayEntry.sets):"");
+  const [weight,setWeight]=useState(todayEntry?String(todayEntry.weight):"");
+
+  // All log entries for this exercise, sorted by date
+  const allEntries=Object.entries(trainLog)
+    .filter(([,day])=>day[ex.id])
+    .map(([date,day])=>({date,...day[ex.id]}))
+    .sort((a,b)=>a.date.localeCompare(b.date));
+
+  function save(){
+    const s=parseInt(sets),w=parseFloat(weight.replace(",","."));
+    if(!s||s<1||s>99){showToast("Sätze: 1–99");return;}
+    if(isNaN(w)||w<0){showToast("Ungültiges Gewicht");return;}
+    onLog(ex.id,{sets:s,weight:w});
+    showToast("✓ Training gespeichert");
+  }
+
+  const last=allEntries[allEntries.length-1];
+  const prev=allEntries[allEntries.length-2];
+  const weightDiff=last&&prev?+(last.weight-prev.weight).toFixed(1):null;
+
+  return h("div",{style:{padding:"0 18px 100px"}},
+    // Back button
+    h("button",{onClick:onBack,style:{background:"transparent",border:"none",color:"#a78bfa",fontSize:13,fontWeight:700,cursor:"pointer",padding:"14px 0",display:"flex",alignItems:"center",gap:6}},
+      "‹ Zurück"
+    ),
+    h("div",{style:{fontSize:20,fontWeight:800,marginBottom:4}},ex.name),
+    ex.category&&h("div",{style:{fontSize:12,color:"#555",marginBottom:20}},ex.category),
+
+    // Quick stats
+    allEntries.length>0&&h("div",{style:{display:"flex",gap:8,marginBottom:20}},
+      [{val:last?last.weight+" kg":"–",label:"Letztes Gewicht",col:"#a78bfa"},
+       {val:last?last.sets+" Sätze":"–",label:"Letzte Sätze",col:"#a78bfa"},
+       {val:weightDiff!==null?(weightDiff>0?"+":"")+weightDiff+" kg":"–",label:"Entwicklung",col:weightDiff===null?"#a78bfa":weightDiff>0?"#4ade80":weightDiff<0?"#ff4444":"#888"}
+      ].map(({val,label,col})=>
+        h("div",{key:label,style:{flex:1,background:"#111",border:"1px solid #1e1e1e",borderRadius:12,padding:"10px 6px",textAlign:"center"}},
+          h("div",{style:{fontSize:14,fontWeight:800,color:col,lineHeight:1,marginBottom:4}},val),
+          h("div",{style:{fontSize:8,fontWeight:700,letterSpacing:0.8,textTransform:"uppercase",color:"#444"}},label)
+        )
+      )
+    ),
+
+    // Log for today — always editable
+    h("div",{style:{background:"#111",border:"1px solid #1e1e1e",borderRadius:14,padding:"16px",marginBottom:20}},
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}},
+        h("div",{style:{fontSize:11,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#555"}},
+          todayEntry?"Heute bearbeiten":"Heute eintragen"
+        ),
+        todayEntry&&h("span",{style:{fontFamily:"monospace",fontSize:10,color:"#a78bfa"}},`Gespeichert: ${todayEntry.sets}×${todayEntry.weight}kg`)
+      ),
+      h("div",{style:{display:"flex",gap:8,marginBottom:10}},
+        h("div",{style:{flex:1}},
+          h("div",{style:{fontSize:10,color:"#555",fontWeight:700,letterSpacing:0.8,textTransform:"uppercase",marginBottom:6}},"Arbeitssätze"),
+          h("input",{value:sets,onChange:e=>setSets(e.target.value),placeholder:"z.B. 4",type:"number",style:{...S.input,marginBottom:0,fontFamily:"monospace",fontSize:16,fontWeight:700,textAlign:"center"}})
+        ),
+        h("div",{style:{flex:1}},
+          h("div",{style:{fontSize:10,color:"#555",fontWeight:700,letterSpacing:0.8,textTransform:"uppercase",marginBottom:6}},"Arbeitsgewicht (kg)"),
+          h("input",{value:weight,onChange:e=>setWeight(e.target.value),placeholder:"z.B. 80",type:"number",step:"2.5",style:{...S.input,marginBottom:0,fontFamily:"monospace",fontSize:16,fontWeight:700,textAlign:"center"}})
+        )
+      ),
+      h("button",{onClick:save,style:{width:"100%",padding:"12px",background:"#a78bfa",color:"#000",border:"none",borderRadius:10,fontSize:13,fontWeight:700,cursor:"pointer"}},
+        todayEntry?"✓ Aktualisieren":"✓ Eintragen"
+      )
+    ),
+
+    // Charts
+    allEntries.length>=2&&h("div",null,
+      // Chart 1: Gewicht
+      h("div",{style:{background:"#111",border:"1px solid #1a1a1a",borderRadius:14,padding:"14px",marginBottom:12}},
+        h("div",{style:{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#a78bfa",marginBottom:10}},"Gewicht (kg)"),
+        h(MiniChart,{entries:allEntries,color:"#a78bfa",yLabel:"kg",valueKey:"weight"})
+      ),
+      // Chart 2: Sätze
+      h("div",{style:{background:"#111",border:"1px solid #1a1a1a",borderRadius:14,padding:"14px",marginBottom:12}},
+        h("div",{style:{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#38bdf8",marginBottom:10}},"Arbeitssätze"),
+        h(MiniChart,{entries:allEntries,color:"#38bdf8",yLabel:"Sätze",valueKey:"sets"})
+      ),
+      // Chart 3: Volumen (Sätze × Gewicht)
+      h("div",{style:{background:"#111",border:"1px solid #1a1a1a",borderRadius:14,padding:"14px",marginBottom:12}},
+        h("div",{style:{fontSize:10,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#c8ff00",marginBottom:10}},"Gesamtvolumen (Sätze × kg)"),
+        h(MiniChart,{entries:allEntries.map(e=>({...e,volume:e.sets*e.weight})),color:"#c8ff00",yLabel:"kg",valueKey:"volume"})
+      ),
+
+      // History list
+      h("div",{style:{marginTop:4}},
+        h("div",{style:{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#444",marginBottom:10}},"Verlauf"),
+        [...allEntries].reverse().slice(0,15).map((e,i)=>
+          h("div",{key:i,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 14px",background:"#111",border:"1px solid #1a1a1a",borderRadius:10,marginBottom:6}},
+            h("span",{style:{fontFamily:"monospace",fontSize:12,color:"#555"}},formatKey(e.date)),
+            h("div",{style:{display:"flex",gap:12,alignItems:"center"}},
+              h("span",{style:{fontFamily:"monospace",fontSize:11,color:"#444"}},e.sets+" Sätze"),
+              h("span",{style:{fontFamily:"monospace",fontSize:13,fontWeight:700,color:"#a78bfa"}},e.weight+" kg"),
+              h("span",{style:{fontFamily:"monospace",fontSize:10,color:"#555"}},`=${e.sets*e.weight} kg`)
+            )
+          )
+        )
+      )
+    )
+  );
+}
+
+function TrainingModule({exercises,setExercises,trainLog,setTrainLog,currentDate,showToast}){
+  const [tab,setTab]=useState("heute");
+  const [editOpen,setEditOpen]=useState(false);
+  const [editItem,setEditItem]=useState(null);
+  const [selectedEx,setSelectedEx]=useState(null);
+
+  function openNew(){setEditItem({id:uid(),name:"",category:"",active:true});setEditOpen(true);}
+  function openEdit(ex){setEditItem({...ex});setEditOpen(true);}
+  function saveEdit(){
+    if(!editItem.name.trim()){showToast("Name darf nicht leer sein");return;}
+    setExercises(prev=>{const ex=prev.find(e=>e.id===editItem.id);return ex?prev.map(e=>e.id===editItem.id?editItem:e):[...prev,editItem];});
+    setEditOpen(false);showToast("✓ Gespeichert");
+  }
+  function deleteEx(id){setExercises(prev=>prev.filter(e=>e.id!==id));setEditOpen(false);showToast("Gelöscht");}
+
+  function logSet(exId,entry){
+    setTrainLog(prev=>({...prev,[currentDate]:{...(prev[currentDate]||{}),[exId]:{...entry,date:currentDate}}}));
+  }
+
+  const todayLogged=exercises.filter(ex=>trainLog[currentDate]?.[ex.id]);
+  const categories=[...new Set(exercises.map(e=>e.category||"Sonstiges"))];
+
+  // Verlauf: days that have any training
+  const trainDays=Object.keys(trainLog).sort((a,b)=>b.localeCompare(a)).slice(0,30);
+
+  if(selectedEx){
+    return h(ExerciseDetail,{ex:selectedEx,trainLog,onBack:()=>setSelectedEx(null),currentDate,onLog:logSet,showToast});
+  }
+
+  return h("div",null,
+    h("div",{style:{display:"flex",alignItems:"center",padding:"0 18px",borderBottom:"1px solid #1a1a1a"}},
+      [["heute","Heute"],["verlauf","Verlauf"],["übungen","Übungen"]].map(([t,l])=>
+        h("button",{key:t,onClick:()=>setTab(t),style:{padding:"10px 12px",fontSize:12,fontWeight:700,border:"none",background:"none",cursor:"pointer",color:tab===t?"#f0f0f0":"#444",borderBottom:tab===t?"2px solid #a78bfa":"2px solid transparent",marginBottom:-1}},l)
+      )
+    ),
+    h("div",{style:{padding:"14px 18px 120px"}},
+
+      // ── HEUTE ──
+      tab==="heute"&&h("div",null,
+        h("div",{style:{display:"flex",gap:8,marginBottom:20}},
+          [{val:todayLogged.length,label:"Heute trainiert"},{val:exercises.length,label:"Übungen gesamt"},{val:trainDays.length,label:"Trainingstage"}].map(({val,label})=>
+            h("div",{key:label,style:{flex:1,background:"#111",border:"1px solid #1e1e1e",borderRadius:12,padding:"12px 8px",textAlign:"center"}},
+              h("div",{style:{fontSize:22,fontWeight:800,color:"#a78bfa",lineHeight:1,marginBottom:4}},val),
+              h("div",{style:{fontSize:9,fontWeight:700,letterSpacing:1,textTransform:"uppercase",color:"#444"}},label)
+            )
+          )
+        ),
+        exercises.length===0
+          ? h("div",{style:{textAlign:"center",padding:"48px 20px",color:"#333"}},
+              h("div",{style:{fontSize:32,marginBottom:12}},"🏋️"),
+              h("div",{style:{fontSize:14,marginBottom:8,color:"#444"}},"Noch keine Übungen"),
+              h("div",{style:{fontSize:12,marginBottom:20}},"Füge deine ersten Übungen hinzu"),
+              h("button",{onClick:()=>{setTab("übungen");openNew();},style:{background:"#a78bfa",color:"#000",border:"none",borderRadius:10,padding:"10px 20px",fontSize:13,fontWeight:700,cursor:"pointer"}},"+ Erste Übung")
+            )
+          : categories.map(cat=>{
+              const catEx=exercises.filter(e=>(e.category||"Sonstiges")===cat);
+              return h("div",{key:cat},
+                h("div",{style:{display:"flex",alignItems:"center",gap:8,margin:"16px 0 10px"}},
+                  h("div",{style:{width:7,height:7,borderRadius:"50%",background:"#a78bfa",flexShrink:0}}),
+                  h("div",{style:{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#555"}},cat),
+                  h("div",{style:{marginLeft:"auto",fontFamily:"monospace",fontSize:10,color:"#333"}},`${catEx.filter(e=>trainLog[currentDate]?.[e.id]).length}/${catEx.length}`)
+                ),
+                catEx.map(ex=>{
+                  const logged=trainLog[currentDate]?.[ex.id];
+                  return h("div",{key:ex.id,onClick:()=>setSelectedEx(ex),style:{background:logged?"#131313":"#111",border:`1px solid ${logged?"#1e3a2a":"#1a1a1a"}`,borderLeft:`3px solid ${logged?"#a78bfa":"#1a1a1a"}`,borderRadius:12,padding:"13px 14px",marginBottom:7,display:"flex",alignItems:"center",gap:12,cursor:"pointer"}},
+                    h("div",{style:{width:26,height:26,borderRadius:7,flexShrink:0,border:`2px solid ${logged?"#a78bfa":"#2a2a2a"}`,background:logged?"#a78bfa":"transparent",display:"flex",alignItems:"center",justifyContent:"center",fontSize:13,color:"#000",fontWeight:700}},logged?"✓":""),
+                    h("div",{style:{flex:1}},
+                      h("div",{style:{fontSize:14,fontWeight:600,color:logged?"#777":"#e8e8e8",marginBottom:2}},ex.name),
+                      logged
+                        ? h("div",{style:{fontFamily:"monospace",fontSize:11,color:"#a78bfa"}},`${logged.sets} Sätze · ${logged.weight} kg · ${logged.sets*logged.weight} kg Volumen`)
+                        : h("div",{style:{fontFamily:"monospace",fontSize:11,color:"#333"}},"Tippen zum Eintragen")
+                    ),
+                    h("span",{style:{color:"#333",fontSize:14}},"›")
+                  );
+                })
+              );
+            })
+      ),
+
+      // ── VERLAUF ──
+      tab==="verlauf"&&h("div",null,
+        trainDays.length===0
+          ? h("div",{style:{textAlign:"center",padding:"60px 20px",color:"#333",fontSize:13}},"Noch keine Trainingseinheiten.")
+          : trainDays.map(date=>{
+              const dayData=trainLog[date]||{};
+              const logged=exercises.filter(ex=>dayData[ex.id]);
+              return h("div",{key:date,style:{background:"#111",border:"1px solid #1a1a1a",borderRadius:12,padding:"13px 15px",marginBottom:8}},
+                h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
+                  h("span",{style:{fontFamily:"monospace",fontSize:12,color:"#555"}},formatKey(date)),
+                  h("span",{style:{fontSize:12,fontWeight:800,color:"#a78bfa"}},logged.length+" Übungen")
+                ),
+                h("div",{style:{display:"flex",flexWrap:"wrap",gap:4}},
+                  logged.map(ex=>{
+                    const e=dayData[ex.id];
+                    return h("span",{key:ex.id,onClick:()=>setSelectedEx(ex),style:{fontFamily:"monospace",fontSize:9,padding:"3px 8px",borderRadius:100,border:"1px solid rgba(167,139,250,0.3)",background:"rgba(167,139,250,0.08)",color:"#a78bfa",cursor:"pointer"}},
+                      `${ex.name} ${e.weight}kg×${e.sets}`
+                    );
+                  })
+                )
+              );
+            })
+      ),
+
+      // ── ÜBUNGEN ──
+      tab==="übungen"&&h("div",null,
+        h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",margin:"4px 0 20px"}},
+          h("div",null,
+            h("div",{style:{fontSize:17,fontWeight:800,marginBottom:2}},"Übungen"),
+            h("div",{style:{fontSize:12,color:"#444"}},`${exercises.length} gesamt`)
+          ),
+          h("button",{onClick:openNew,style:{background:"#a78bfa",color:"#000",border:"none",borderRadius:10,padding:"9px 16px",fontSize:12,fontWeight:700,cursor:"pointer"}},"+ Neu")
+        ),
+        exercises.length===0&&h("div",{style:{textAlign:"center",padding:"40px 20px",color:"#333",fontSize:13}},"Noch keine Übungen. Füge deine erste hinzu!"),
+        categories.map(cat=>{
+          const catEx=exercises.filter(e=>(e.category||"Sonstiges")===cat);
+          return h("div",{key:cat,style:{marginBottom:22}},
+            h("div",{style:{fontSize:10,fontWeight:700,letterSpacing:1.5,textTransform:"uppercase",color:"#a78bfa",marginBottom:10}},cat),
+            catEx.map(ex=>
+              h("div",{key:ex.id,style:{background:"#111",border:"1px solid #1a1a1a",borderRadius:11,padding:"12px 14px",marginBottom:6,display:"flex",justifyContent:"space-between",alignItems:"center"}},
+                h("div",{onClick:()=>setSelectedEx(ex),style:{flex:1,cursor:"pointer"}},
+                  h("div",{style:{fontSize:13,fontWeight:600,marginBottom:3}},ex.name),
+                  h("div",{style:{fontFamily:"monospace",fontSize:11,color:"#444"}},
+                    `${Object.values(trainLog).filter(d=>d[ex.id]).length} Einheiten`
+                  )
+                ),
+                h("button",{onClick:e=>{e.stopPropagation();openEdit(ex);},style:{background:"transparent",border:"none",color:"#333",fontSize:16,cursor:"pointer",padding:"0 0 0 12px"}},"›")
+              )
+            )
+          );
+        })
+      )
+    ),
+
+    // Edit Modal
+    h(EditModal,{open:editOpen,onClose:()=>setEditOpen(false)},
+      editItem&&h("div",null,
+        h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:22}},
+          h("div",{style:{fontSize:16,fontWeight:800}},exercises.find(e=>e.id===editItem?.id)?"Übung bearbeiten":"Neue Übung"),
+          h("button",{onClick:()=>setEditOpen(false),style:{background:"#1a1a1a",border:"1px solid #2a2a2a",color:"#888",width:30,height:30,borderRadius:8,cursor:"pointer",fontSize:14}},"✕")
+        ),
+        h("label",{style:S.label},"Name"),
+        h("input",{value:editItem.name,onChange:e=>setEditItem(p=>({...p,name:e.target.value})),placeholder:"z.B. Bankdrücken",style:S.input}),
+        h("label",{style:S.label},"Kategorie (optional)"),
+        h("div",{style:{display:"flex",flexWrap:"wrap",gap:6,marginBottom:14}},
+          ["Push","Pull","Legs","Core","Cardio","Sonstiges"].map(cat=>
+            h("button",{key:cat,onClick:()=>setEditItem(p=>({...p,category:cat})),style:{padding:"7px 12px",borderRadius:8,border:`1px solid ${editItem.category===cat?"#a78bfa":"#222"}`,background:editItem.category===cat?"rgba(167,139,250,0.1)":"transparent",color:editItem.category===cat?"#a78bfa":"#444",fontSize:11,fontWeight:700,cursor:"pointer"}},cat)
+          )
+        ),
+        h("button",{onClick:saveEdit,style:{width:"100%",padding:"14px",background:"#a78bfa",color:"#000",border:"none",borderRadius:12,fontSize:14,fontWeight:700,cursor:"pointer",marginBottom:10}},"Speichern"),
+        exercises.find(e=>e.id===editItem?.id)&&h("button",{onClick:()=>deleteEx(editItem.id),style:{width:"100%",padding:"12px",background:"transparent",color:"#ff4444",border:"1px solid #2a2a2a",borderRadius:12,fontSize:13,fontWeight:600,cursor:"pointer"}},"Löschen")
+      )
+    )
+  );
+}
+
 // ─── MAIN APP ────────────────────────────────────────────────────────────────
 
 function App(){
@@ -570,6 +896,8 @@ function App(){
   const [habits,setHabits]=useState(()=>ls("stackHabits")||DEFAULT_HABITS);
   const [habitData,setHabitData]=useState(()=>ls("stackHabitData")||{});
   const [weightData,setWeightData]=useState(()=>ls("stackWeight")||{});
+  const [exercises,setExercises]=useState(()=>ls("stackExercises")||[]);
+  const [trainLog,setTrainLog]=useState(()=>ls("stackTrainLog")||{});
   const [toast,setToast]=useState(null);
 
   useEffect(()=>lss("stackSupps",supps),[supps]);
@@ -577,6 +905,8 @@ function App(){
   useEffect(()=>lss("stackHabits",habits),[habits]);
   useEffect(()=>lss("stackHabitData",habitData),[habitData]);
   useEffect(()=>lss("stackWeight",weightData),[weightData]);
+  useEffect(()=>lss("stackExercises",exercises),[exercises]);
+  useEffect(()=>lss("stackTrainLog",trainLog),[trainLog]);
 
   let tt;
   function showToast(msg){setToast(msg);clearTimeout(tt);tt=setTimeout(()=>setToast(null),2000);}
@@ -612,7 +942,8 @@ function App(){
     module==="supplements"&&h(SupplementsModule,{supps,setSupps,data:suppData,setData:setSuppData,currentDate,showToast}),
     module==="habits"&&h(HabitsModule,{habits,setHabits,data:habitData,setData:setHabitData,currentDate,showToast}),
     module==="gewicht"&&h(WeightModule,{data:weightData,setData:setWeightData,showToast}),
-    ["ernaehrung","training","blutwerte"].includes(module)&&h("div",{style:{textAlign:"center",padding:"80px 30px",color:"#333"}},
+    module==="training"&&h(TrainingModule,{exercises,setExercises,trainLog,setTrainLog,currentDate,showToast}),
+    ["ernaehrung","blutwerte"].includes(module)&&h("div",{style:{textAlign:"center",padding:"80px 30px",color:"#333"}},
       h("div",{style:{fontSize:40,marginBottom:16}},cm?.icon),
       h("div",{style:{fontSize:18,fontWeight:800,marginBottom:8,color:"#3a3a3a"}},"Coming Soon"),
       h("div",{style:{fontSize:13}},"Dieses Modul kommt bald.")
