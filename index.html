@@ -1048,7 +1048,10 @@ A.rmSet=function(ei){const ex=S.active.exercises[ei];if(ex.sets.length>1)ex.sets
 A.rmEx=function(ei){S.active.exercises.splice(ei,1);saveActive();A.closeEdit();renderWorkout();};
 function elapsedSec(){return S.active?Math.max(0,Math.floor((Date.now()-S.active.startTs)/1000)):0;}
 function renderWorkout(){
- if(!S.active||!woOpen){document.getElementById("workoutlayer").innerHTML="";return;}
+ const layer=document.getElementById("workoutlayer");
+ if(!S.active||!woOpen){layer.innerHTML="";return;}
+ const oldBody=layer.querySelector(".wbody");
+ const keepScroll=oldBody?oldBody.scrollTop:0;
  const a=S.active;
  let html='<div class="wsheet">'
  +'<div class="wtop">'
@@ -1083,7 +1086,9 @@ function renderWorkout(){
  });
  html+='<button class="btn blue" style="margin-top:4px;" onclick="A.openPicker(\'workout\')">+ Übung hinzufügen</button>'
  +'</div></div>';
- document.getElementById("workoutlayer").innerHTML=html;
+ layer.innerHTML=html;
+ const newBody=layer.querySelector(".wbody");
+ if(newBody)newBody.scrollTop=keepScroll;
 }
 A.askDiscard=function(){
  document.getElementById("overlay").innerHTML='<div class="backdrop" onclick="A.closeEdit()"></div><div class="sheet"><div class="grab"></div>'
